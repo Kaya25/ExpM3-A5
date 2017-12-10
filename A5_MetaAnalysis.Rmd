@@ -10,9 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # Building on the shoulders of giants: meta-analysis
-```{r}
-p_load(metafor)
-```
 
 ```{r}
 # Load libraries
@@ -38,6 +35,7 @@ library(nonlinearTseries)
 library(pROC)
 library(Scale)
 library(pacman)
+p_load(metafor)
 ```
 
 ```{r}
@@ -51,8 +49,8 @@ d = read.csv2("A5_Data.csv", stringsAsFactors = F)
 2. Do the results match your own analysis from Assignment 3? If you add your results to the meta-analysis, do the estimated effect sizes change? Report the new estimates and the new forest plots. 
 - standardize B, squared of random slope, paste in the data, save, reimport in R, rerun the analysis, see if it change anything
 
-
 3. Assess the quality of the literature: report and comment on heterogeneity of the studies (tau, I2), on publication bias (funnel plot), and on influential studies.
+
 
 ## Tips on the process to follow:
 
@@ -74,8 +72,11 @@ d$PitchSDSchizoSD=as.numeric(d$PitchSDSchizoSD)
 d$PitchSDControlsSD=as.numeric(d$PitchSDSchizoSD)
 ```
 
+
 - Following the procedure in the slides calculate effect size and standard error of the effect size per each study. N.B. we focus on pitch mean and pitch standard deviation.
 ```{r}
+# Cohen's d = standardized effect size
+
 # Pitch range for mean
 PitchRangeMean = escalc('SMD', n1i=SampleSizeSchizo, n2i=SampleSizeControls, m1i=PitchMeanSchizo, m2i=PitchMeanControls, sd1i=PitchMeanSchizoSD, sd2i=PitchMeanControlsSD, data = d)
 
@@ -83,7 +84,18 @@ PitchRangeMean = escalc('SMD', n1i=SampleSizeSchizo, n2i=SampleSizeControls, m1i
 PitchRangeSD = escalc('SMD', n1i=SampleSizeSchizo, n2i=SampleSizeControls, m1i=PitchSDSchizo, m2i=PitchSDControls, sd1i=PitchSDSchizoSD, sd2i=PitchSDControlsSD, data = d)
 
 ```
- 
+
+```{r}
+# Get number of participants included in the mean analysis
+PitchRangeMean %>% 
+  filter(is.na(yi)==F) %>%
+  summarise(Schizo=sum(SampleSizeSchizo), Controls=sum(SampleSizeControls))
+
+PitchRangeSD %>% 
+  filter(is.na(yi)==F) %>%
+  summarise(Schizo=sum(SampleSizeSchizo), Controls=sum(SampleSizeControls))
+```
+
   - first try using lmer (to connect to what you know of mixed effects models)
 ```{r}
 # lmer models
@@ -100,11 +112,17 @@ summary(m2)
 ```{r}
 # RMA
   # Mean 
-m3 = res = rma(yi, vi, data = PitchRangeMean, slab=Article)
-forest(m3)
+rma_mean = res = rma(yi, vi, data = PitchRangeMean, slab=Article)
+rma_mean 
+forest(rma_mean , main = "Effect of mean")
   # SD
-m4 = res = rma(yi, vi, data = PitchRangeSD, slab=Article)
-forest(m4)
+rma_sd = res = rma(yi, vi, data = PitchRangeSD, slab=Article)
+rma_sd
+forest(rma_sd, main = "Effect of SD")
+
+
+# Tau^2 = overall variance
+# I^2 = proportion of the variance due to heterogeneity (that cannot be reduced to within-study uncertainty)
 ```
  
 
@@ -123,23 +141,97 @@ d2 = d2 %>%
                              as.vector),                           vars=c("mean","stdDev","range","median","InterquartileRange","MeanAbsoluteDeviation","coefficientOfVariation","delay","radius","embed","rqa_REC","rqa_DET","rqa_maxL","rqa_L","rqa_ENTR","rqa_TT","rqa_LAM"))
 ```
 
+```{r}
+# Get No. of participants, mean, sd 
+SampleSizeSchizo = length(unique(d2$participant[d2$diagnosis == "schizophrenia"]))
+SampleSizeControls = length(unique(d2$participant[d2$diagnosis == "control"]))
+PitchMeanControls = mean(d2$mean[d2$diagnosis == "control"])
+PitchMeanSchizo = mean(d2$mean[d2$diagnosis == "schizophrenia"])
+PitchMeanControlsSD = sd(d2$mean[d2$diagnosis == "control"])
+PitchMeanSchizoSD = sd(d2$mean[d2$diagnosis == "schizophrenia"])
+
+PitchSDControls = mean(d2$stdDev[d2$diagnosis == "control"])
+PitchSDSchizo = mean(d2$stdDev[d2$diagnosis == "schizophrenia"])
+PitchSDControlsSD = sd(d2$stdDev[d2$diagnosis == "control"])
+PitchSDSchizoSD = sd(d2$stdDev[d2$diagnosis == "schizophrenia"])
+Article = "CogSci et al."
+Year = 2017
+
+# Create dataframe
+schizo = data.frame(Article, Year, SampleSizeSchizo, SampleSizeControls, PitchMeanControls, PitchMeanControlsSD, PitchMeanSchizo, PitchMeanSchizoSD, PitchSDControls, PitchSDControlsSD, PitchSDSchizo, PitchSDSchizoSD)
+
+# Merge with the rest of the dat
+d_all = rbind(d,schizo)
+```
 
 ```{r}
-# Model
-m5 = glmer(stdDev ~ diagnosis + (1 + diagnosis|participant), d2) 
-summary(m5)
+# Get effect size and sd for our study
+  # Pitch range for mean
+mean_all = escalc('SMD', n1i=SampleSizeSchizo, n2i=SampleSizeControls, m1i=PitchMeanSchizo, m2i=PitchMeanControls, sd1i=PitchMeanSchizoSD, sd2i=PitchMeanControlsSD, data = d_all)
+
+  # Pitch range for SD
+sd_all = escalc('SMD', n1i=SampleSizeSchizo, n2i=SampleSizeControls, m1i=PitchSDSchizo, m2i=PitchSDControls, sd1i=PitchSDSchizoSD, sd2i=PitchSDControlsSD, data = d_all)
+
+
+# Get new number of participants
+mean_all %>% 
+  filter(is.na(yi)==F) %>%
+  summarise(Schizo=sum(SampleSizeSchizo),Controls=sum(SampleSizeControls))
+
+sd_all %>%
+  filter(is.na(yi)==F) %>%
+  summarise(Schizo=sum(SampleSizeSchizo),Controls=sum(SampleSizeControls))
+
 ```
-```{r}
-# Get the numbers we need
-  # Yi = fixed effect, estimate = -0.05782
-yi2 = fixed(m5)[(2)]
-  #Vi = random effect, variance of participant =  0.2421
-vi2 = random()
-
-
-
-```
-
-
-
 - Now look at the output of rma() and check tau and I2
+```{r}
+# Now re-run the analysis
+# lmer models
+  # Mean
+m3 = lmer(yi ~ 1 + (1|Article), weights = 1/vi,data = mean_all, control = lmerControl(check.nobs.vs.nlev = "ignore", check.nobs.vs.nRE = "ignore"))
+summary(m3)
+  # SD
+m4 = lmer(yi ~ 1 + (1|Article), weights = 1/vi,data = sd_all, control = lmerControl(check.nobs.vs.nlev = "ignore", check.nobs.vs.nRE = "ignore"))
+summary(m4)
+
+# RMA
+  # Mean 
+rma_mean2 = res = rma(yi, vi, data = mean_all, slab=Article)
+rma_mean2
+forest(rma_mean2 , main = "Effect of mean")
+
+  # SD
+rma_sd2 = res = rma(yi, vi, data = sd_all, slab=Article)
+rma_sd2
+forest(rma_sd2, main = "Effect of SD")
+```
+
+```{r}
+# Testing for influential studies
+inf <- influence(rma_mean2)
+print(inf)
+plot(inf)
+
+inf <- influence(rma_sd2)
+print(inf)
+plot(inf)
+```
+
+```{r}
+# Funnel plots
+funnel(rma_mean2, main = "Random-Effects Models of Effect of Mean",xlab = "Standardized Mean Difference") # looks fine
+regtest(rma_mean2,digits= 3) # not significant
+ranktest(rma_mean2,digits= 3) # not significant => no evidence for publication bias
+
+funnel(rma_sd2, main = "Random-Effects Models of Effect of SD",xlab = "Standardized Mean Difference") # looks weird
+regtest(rma_sd2,digits=3) # not significant
+ranktest(rma_sd2)
+
+# A significant rank correlation indicates a likely publication bias and inflated effect sizes due to small samples
+```
+
+
+
+
+
+
